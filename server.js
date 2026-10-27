@@ -5,7 +5,9 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: '*' },
+  maxHttpBufferSize: 5e7, // 👈 50MB limit (Isse Images/Videos par socket disconnect nahi hoga)
+  pingTimeout: 60000,
 });
 
 // Health check route (Browser mein check karne ke liye)
@@ -50,9 +52,14 @@ io.on('connection', (socket) => {
     socket.join(room);
   });
 
-  socket.on('send_message', (data) => {
+socket.on('send_message', (data) => {
     if (data && data.room) {
+      // Room mein bhejein
       socket.to(data.room).emit('receive_message', data);
+      // Instant delivery ke liye seedha target phone number room mein bhi bhejein
+      if (data.targetPhone) {
+        socket.to(data.targetPhone).emit('receive_message', data);
+      }
     }
   });
 
