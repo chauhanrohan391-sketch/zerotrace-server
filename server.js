@@ -8,7 +8,11 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-// Phone number -> socket.id map
+// Health check route (Browser mein check karne ke liye)
+app.get('/', (req, res) => {
+  res.send('ZeroTrace Server v2.0 is Running!');
+});
+
 const onlineUsers = new Map();
 const registeredPhones = new Set();
 const ghostUsers = new Map();
@@ -16,21 +20,28 @@ const ghostUsers = new Map();
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // 1. Register Phone & Personal Room
+  // 👇 1. Phone register karna aur sabko notify karna (YAHAN ADD HUA HAI)
   socket.on('register_phone', (data) => {
     if (data && data.phone) {
-      registeredPhones.add(data.phone);
-      onlineUsers.set(data.phone, socket.id);
-      socket.phone = data.phone;
-      socket.join(data.phone); // Personal room for incoming calls
-      console.log(`Phone registered: ${data.phone}`);
+      const cleanPhone = String(data.phone).replace(/\D/g, '').slice(-10);
+      registeredPhones.add(cleanPhone);
+      onlineUsers.set(cleanPhone, socket.id);
+      socket.phone = cleanPhone;
+      socket.join(cleanPhone); // Personal room for incoming calls
+
+      // Sabhi phones ko batao ki naya user active hua hai
+      io.emit('user_registered', { phone: cleanPhone });
+      console.log(`Phone registered: ${cleanPhone}`);
     }
   });
 
-  // 2. Check Contacts Matching
+  // 👇 2. Contacts match karke wapas bhejna (YAHAN ADD HUA HAI)
   socket.on('check_registered_contacts', (data, callback) => {
     const numbers = data && Array.isArray(data.numbers) ? data.numbers : [];
-    const matched = numbers.filter((num) => registeredPhones.has(num));
+    const matched = numbers.filter((num) =>
+      registeredPhones.has(String(num).replace(/\D/g, '').slice(-10))
+    );
+    console.log('Checking contacts, matched:', matched);
     if (typeof callback === 'function') callback(matched);
   });
 
@@ -45,9 +56,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 4. WebRTC Signaling (Direct User-to-User via Phone Number)
+  // 4. WebRTC Audio/Video Calling Signaling
   socket.on('call_user', (data) => {
-    // data: { targetPhone, callerPhone, callerName, type, sdp }
     console.log(`Call from ${data.callerPhone} to ${data.targetPhone}`);
     io.to(data.targetPhone).emit('incoming_call', {
       callerPhone: data.callerPhone,
@@ -58,7 +68,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('answer_call', (data) => {
-    // data: { targetPhone, sdp }
     console.log(`Call answered for ${data.targetPhone}`);
     io.to(data.targetPhone).emit('call_answered', {
       sdp: data.sdp,
@@ -66,7 +75,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('ice_candidate', (data) => {
-    // data: { targetPhone, candidate }
     if (data && data.targetPhone && data.candidate) {
       io.to(data.targetPhone).emit('ice_candidate', {
         candidate: data.candidate,
